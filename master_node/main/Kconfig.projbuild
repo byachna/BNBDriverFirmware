@@ -1,0 +1,31 @@
+menu "Wardrive Master Node (ESP32-WROOM-32E) Configuration"
+
+    config WD_BLE_DEVICE_NAME
+        string "BLE device name advertised to phone"
+        default "BNB-WarDriver"
+
+    config WD_MASTER_UART_PORT_NUM
+        int "UART port number (link to local ESP32-C5)"
+        default 1
+        range 0 2
+
+    config WD_MASTER_UART_TX_GPIO
+        int "UART TX GPIO (wire to C5 RX)"
+        default 17
+
+    config WD_MASTER_UART_RX_GPIO
+        int "UART RX GPIO (wire to C5 TX)"
+        default 16
+
+    config WD_MASTER_UART_BAUD
+        int "UART baud rate"
+        default 921600
+
+    config WD_MASTER_ESPNOW_CHANNEL
+        int "ESP-NOW Wi-Fi channel"
+        default 1
+        range 1 13
+        help
+            Fixed channel used to talk to wireless ESP32-C5 child nodes.
+
+endmenu

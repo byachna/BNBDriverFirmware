@@ -1,0 +1,11 @@
+{
+  "idf.currentSetup": "/home/europort/.espressif/v6.1/esp-idf",
+  "idf.customExtraVars": {},
+  "clangd.path": "/home/europort/.espressif/tools/esp-clangd/esp-21.1.3_20260408/esp-clangd/bin/clangd",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=**",
+    "--compile-commands-dir=/home/europort/Code/BNBDriverMaster/build"
+  ],
+  "cmake.sourceDirectory": "/home/europort/Code/BNBDriverMaster/master_node/main"
+}

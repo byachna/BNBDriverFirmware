@@ -1,0 +1,57 @@
+menu "Wardrive Scanner (ESP32-C5) Configuration"
+
+    choice WD_TRANSPORT
+        prompt "Link to master node"
+        default WD_TRANSPORT_ESPNOW
+        help
+            How this scanner node talks to the ESP32-WROOM-32E master.
+            Use UART for the single scanner wired directly to the master's
+            TX/RX pins. Use ESP-NOW for additional wireless scanner nodes
+            that get assigned Wi-Fi channels over the air.
+
+        config WD_TRANSPORT_UART
+            bool "UART (wired directly to master)"
+
+        config WD_TRANSPORT_ESPNOW
+            bool "ESP-NOW (wireless child node)"
+    endchoice
+
+    config WD_UART_PORT_NUM
+        int "UART port number"
+        depends on WD_TRANSPORT_UART
+        default 1
+        range 0 2
+
+    config WD_UART_TX_GPIO
+        int "UART TX GPIO"
+        depends on WD_TRANSPORT_UART
+        default 8
+        help
+            GPIO16/17 are not broken out on the ESP32-C5-DevKitC-1 (used
+            internally by the WROOM-1 module). GPIO8/9 are free, non-
+            strapping pins on header J1; wire this to the master's RX pin.
+
+    config WD_UART_RX_GPIO
+        int "UART RX GPIO"
+        depends on WD_TRANSPORT_UART
+        default 9
+        help
+            Wire this to the master's TX pin. See WD_UART_TX_GPIO for why
+            GPIO8/9 were chosen over 16/17 on the DevKitC-1 board.
+
+    config WD_UART_BAUD
+        int "UART baud rate"
+        depends on WD_TRANSPORT_UART
+        default 921600
+
+    config WD_ESPNOW_CHANNEL
+        int "ESP-NOW Wi-Fi channel"
+        depends on WD_TRANSPORT_ESPNOW
+        default 1
+        range 1 13
+        help
+            Fixed channel used for the ESP-NOW control link. Actual Wi-Fi
+            scanning temporarily hops to other channels and returns here
+            between sweeps.
+
+endmenu
