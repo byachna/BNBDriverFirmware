@@ -71,9 +71,6 @@ static esp_err_t do_scan(uint8_t channel, uint32_t dwell_ms, wd_ap_found_cb_t cb
         .channel = channel,
         .show_hidden = true,
         .scan_type = WIFI_SCAN_TYPE_ACTIVE,
-        .scan_time = {
-            .active = { .min = dwell_ms / 2, .max = dwell_ms },
-        },
     };
 
     err = esp_wifi_scan_start(&scan_cfg, true /* block until done */);

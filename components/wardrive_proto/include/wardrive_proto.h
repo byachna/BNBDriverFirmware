@@ -12,7 +12,7 @@
 extern "C" {
 #endif
 
-#define WD_PROTO_VERSION      1
+#define WD_PROTO_VERSION      2
 #define WD_MAX_SSID_LEN       32
 #define WD_MAX_CHANNELS       40
 #define WD_MAC_LEN            6
@@ -26,6 +26,12 @@ typedef enum {
     WD_BAND_2G4 = 0,
     WD_BAND_5G  = 1,
 } wd_band_t;
+
+/* Identifies the radio that produced a streamed discovery record. */
+typedef enum {
+    WD_RECORD_TYPE_WIFI = 0,
+    WD_RECORD_TYPE_BLE  = 1,
+} wd_record_type_t;
 
 /* Message types exchanged between master <-> scanner node. */
 typedef enum {
@@ -49,6 +55,9 @@ typedef struct __attribute__((packed)) {
                               pulling esp_wifi headers into this shared file */
     uint8_t  node_id[WD_MAC_LEN]; /* originating node MAC, all-zero = locally
                                       UART-attached node */
+    uint8_t  record_type; /* wd_record_type_t; BLE uses bssid for its address,
+                             ssid for its advertised name, and authmode for
+                             its address type */
 } wd_ap_record_t;
 
 typedef struct __attribute__((packed)) {

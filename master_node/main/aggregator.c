@@ -21,11 +21,12 @@ void wd_aggregator_set_update_cb(wd_agg_update_cb_t cb)
     s_cb = cb;
 }
 
-/* Finds an access point by BSSID and returns its table index, or -1. */
-static int find_by_bssid(const uint8_t *bssid)
+/* Finds a record by source radio and address and returns its table index, or -1. */
+static int find_by_address(wd_record_type_t record_type, const uint8_t *address)
 {
     for (uint32_t i = 0; i < s_count; i++) {
-        if (memcmp(s_aps[i].bssid, bssid, WD_MAC_LEN) == 0) {
+        if (s_aps[i].record_type == record_type &&
+            memcmp(s_aps[i].bssid, address, WD_MAC_LEN) == 0) {
             return (int)i;
         }
     }
@@ -38,7 +39,7 @@ void wd_aggregator_add(const wd_ap_record_t *rec)
     xSemaphoreTake(s_lock, portMAX_DELAY);
 
     bool is_new = false;
-    int idx = find_by_bssid(rec->bssid);
+    int idx = find_by_address((wd_record_type_t)rec->record_type, rec->bssid);
     if (idx < 0) {
         if (s_count < WD_AGG_MAX_APS) {
             idx = (int)s_count++;

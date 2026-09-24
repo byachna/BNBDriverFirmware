@@ -11,6 +11,7 @@
 #include "wardrive_proto.h"
 #include "transport.h"
 #include "wifi_scan.h"
+#include "ble_scan.h"
 
 static const char *TAG = "wd_scanner_c5";
 
@@ -40,8 +41,20 @@ static QueueHandle_t s_ap_queue;
  * the flush task's resync) so they can never race on the single radio. */
 static SemaphoreHandle_t s_radio_lock;
 
-/* Converts a Wi-Fi scan result to the wire format and queues it for sending. */
-static void enqueue_ap_record(const wifi_ap_record_t *rec)
+/* Queues one Wi-Fi or BLE discovery record for transport to the master. */
+static void enqueue_discovery_record(const wd_ap_record_t *record)
+{
+    wd_ap_record_t queued_record = *record;
+#if CONFIG_WD_TRANSPORT_ESPNOW
+    esp_wifi_get_mac(WIFI_IF_STA, queued_record.node_id);
+#endif
+    if (xQueueSend(s_ap_queue, &queued_record, 0) != pdTRUE) {
+        ESP_LOGW(TAG, "AP queue full, dropping record");
+    }
+}
+
+/* Converts a Wi-Fi scan result to the shared wire format and queues it. */
+static void enqueue_wifi_ap_record(const wifi_ap_record_t *rec)
 {
     wd_ap_record_t out = {0};
     memcpy(out.bssid, rec->bssid, WD_MAC_LEN);
@@ -50,14 +63,8 @@ static void enqueue_ap_record(const wifi_ap_record_t *rec)
     out.channel = rec->primary;
     out.band = (rec->primary > 14) ? WD_BAND_5G : WD_BAND_2G4;
     out.authmode = (uint8_t)rec->authmode;
-    /* node_id left zero on the wired node; the ESP-NOW build fills it in
-     * with our own MAC so the master can tell nodes apart. */
-#if CONFIG_WD_TRANSPORT_ESPNOW
-    esp_wifi_get_mac(WIFI_IF_STA, out.node_id);
-#endif
-    if (xQueueSend(s_ap_queue, &out, 0) != pdTRUE) {
-        ESP_LOGW(TAG, "AP queue full, dropping record");
-    }
+    out.record_type = WD_RECORD_TYPE_WIFI;
+    enqueue_discovery_record(&out);
 }
 
 /* Periodically returns to the control channel and flushes queued AP records. */
@@ -96,7 +103,7 @@ static void scan_task(void *arg)
             ESP_LOGI(TAG, "Scanning channel %u (dwell=%ums)",
                      local_assign.channels[i], (unsigned)local_assign.dwell_ms);
             xSemaphoreTake(s_radio_lock, portMAX_DELAY);
-            wd_wifi_scan_channel(local_assign.channels[i], local_assign.dwell_ms, enqueue_ap_record);
+            wd_wifi_scan_channel(local_assign.channels[i], local_assign.dwell_ms, enqueue_wifi_ap_record);
             xSemaphoreGive(s_radio_lock);
         }
         ESP_LOGI(TAG, "Scan cycle done (master %sconnected)",
@@ -217,11 +224,13 @@ static void on_transport_msg(uint8_t msg_type, const uint8_t *payload, uint16_t 
     case WD_MSG_START_SCAN:
         ESP_LOGI(TAG, "Start scan requested");
         start_scanning();
+        wd_ble_scan_start();
         break;
 
     case WD_MSG_STOP_SCAN:
         ESP_LOGI(TAG, "Stop scan requested");
         stop_scanning();
+        wd_ble_scan_stop();
         break;
 
     default:
@@ -239,6 +248,7 @@ void app_main(void)
 
     ESP_ERROR_CHECK(wd_wifi_scan_init());
     ESP_ERROR_CHECK(wd_transport_init(on_transport_msg));
+    ESP_ERROR_CHECK(wd_ble_scan_init(enqueue_discovery_record));
 
     ESP_LOGI(TAG, "ESP32-C5 Wi-Fi scanner ready (%s transport)",
 #if CONFIG_WD_TRANSPORT_UART

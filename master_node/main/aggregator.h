@@ -9,8 +9,8 @@ extern "C" {
 
 #define WD_AGG_MAX_APS 512
 
-/* Notified once per newly-seen or updated AP record (already deduplicated
- * by BSSID). Called from whichever task received the record; keep it fast. */
+/* Notified once per newly-seen or updated discovery record (deduplicated by
+ * source radio and address). Called from the receiving task; keep it fast. */
 typedef void (*wd_agg_update_cb_t)(const wd_ap_record_t *rec, bool is_new);
 
 void wd_aggregator_init(void);

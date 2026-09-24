@@ -103,9 +103,15 @@ idf.py -p /dev/ttyUSBn flash monitor
   known (learned from its first received packet), broadcast otherwise.
 - Message types (`wd_msg_type_t`): `HELLO_REQ/RESP`, `ASSIGN_CHANNELS`,
   `START_SCAN`, `STOP_SCAN`, `AP_RECORD`, `SCAN_CYCLE_DONE`, `HEARTBEAT`.
+- `AP_RECORD` carries the shared `wd_ap_record_t` discovery format. Its
+  `record_type` is `WIFI` for an access point or `BLE` for a Bluetooth LE
+  advertisement. BLE records use `bssid` for the advertiser address, `ssid`
+  for its advertised local name, `rssi` for signal strength, and `authmode`
+  for the BLE address type.
 - The master's BLE service exposes three characteristics: an AP-stream
-  (notify) characteristic, a control (write: `0x01` start / `0x02` stop)
-  characteristic, and a status (read: AP count + node count) characteristic.
+  (notify) characteristic that streams both Wi-Fi and BLE records, a control
+  (write: `0x01` start / `0x02` stop) characteristic, and a status (read: AP
+  count + node count) characteristic.
 
 ## Developer guide
 
@@ -114,17 +120,19 @@ idf.py -p /dev/ttyUSBn flash monitor
 - `master_node/main/node_manager.c` tracks scanner liveness and redistributes
   the complete channel list whenever nodes join or become stale. The wired
   scanner is assigned index 0 when it is connected.
-- `master_node/main/aggregator.c` deduplicates AP records by BSSID and forwards
-  each update to the BLE notification path.
+- `master_node/main/aggregator.c` deduplicates discovery records by source
+  radio plus address and forwards each update to the BLE notification path.
 - `master_node/main/ble_gatt.c` implements the NimBLE service and translates
   phone control writes into scanner start/stop commands.
-- `wifi_scanner_c5/main/main.c` owns scanner tasks, channel assignments, radio
-  locking, and queued AP delivery. AP records are queued while scanning and
-  sent after the radio returns to the ESP-NOW control channel. Channel
-  assignments are shared between the transport callback and scan task under a
-  mutex; they are not passed through the AP-record queue.
+- `wifi_scanner_c5/main/main.c` owns Wi-Fi/BLE scanner tasks, channel
+  assignments, radio locking, and queued record delivery. Wi-Fi AP and BLE
+  advertisement records are queued while scanning and sent after the radio
+  returns to the ESP-NOW control channel. Channel assignments are shared
+  between the transport callback and scan task under a mutex; they are not
+  passed through the record queue.
 - `wifi_scanner_c5/main/wifi_scan.c` performs blocking per-channel scans;
-  `espnow_transport.c` and `uart_transport.c` provide interchangeable links.
+  `ble_scan.c` observes BLE advertisements; `espnow_transport.c` and
+  `uart_transport.c` provide interchangeable links.
 
 The master periodically sends discovery requests, and nodes are considered
 stale after 15 seconds without a message. A newly discovered node causes the
@@ -135,9 +143,11 @@ master to recompute the channel split for all currently live scanners.
 The C5 scanner uses a FreeRTOS queue to decouple Wi-Fi scanning from transport
 transmission:
 
-1. `wd_wifi_scan_channel()` invokes `enqueue_ap_record()` for each discovered
-  network. The callback converts the driver record to `wd_ap_record_t` and
-  attempts a non-blocking enqueue into `s_ap_queue`.
+1. `wd_wifi_scan_channel()` invokes `enqueue_wifi_ap_record()` for each
+  discovered network. The callback converts the driver record to
+  `wd_ap_record_t` with `record_type = WIFI`; the NimBLE observer produces
+  the same record type with `record_type = BLE`. Both use a non-blocking
+  enqueue into `s_ap_queue`.
 2. `s_ap_queue` holds up to 64 AP records. If it is full, the record is
   dropped and the scanner logs `AP queue full, dropping record`; scanning is
   never stalled waiting for the master.
@@ -152,6 +162,12 @@ need channel resynchronization, but the periodic flush task and queue keep
 the scanner behavior consistent across both transport modes. The queue is
 intentionally best-effort: the master receives records in batches, and a
 temporary backlog can cause individual AP records to be lost.
+
+The ESP32-C5 uses one shared 2.4 GHz radio for Wi-Fi and BLE. BLE observation
+runs concurrently with the assigned Wi-Fi scan loop through ESP-IDF radio
+coexistence, so dense radio traffic can reduce discovery and transport
+throughput. Because `wd_ap_record_t` changed for protocol version 2, flash the
+updated master and every scanner together.
 
 ## Known limitations / next steps
 
