@@ -1,12 +1,22 @@
 #pragma once
 #include <stdint.h>
 #include <stdbool.h>
+#include "wardrive_proto.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-void wd_node_manager_init(void);
+typedef struct {
+	int64_t (*now_us)(void);
+	void (*uart_send)(uint8_t msg_type, const void *payload, uint16_t len);
+	void (*espnow_send)(const uint8_t mac[6], uint8_t msg_type,
+						const void *payload, uint16_t len);
+	void (*espnow_broadcast)(uint8_t msg_type, const void *payload, uint16_t len);
+} wd_node_manager_ports_t;
+
+/* Installs platform ports used for time and node command delivery. */
+void wd_node_manager_init(const wd_node_manager_ports_t *ports);
 
 /* Registers a wireless (ESP-NOW) scanner node. Returns true if this MAC
  * was not previously known. Triggers a channel redistribution. */

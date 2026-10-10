@@ -48,6 +48,84 @@ A Wi-Fi wardriving device built around an **ESP32-WROOM-32E** master node
   the `wd_ap_record_t` / `wd_channel_assignment_t` structs, CRC16 and a
   byte-stream framer for UART) used identically by both firmware images.
 
+### Master firmware boundaries
+
+- `master_node/main/main.c` is the composition root: it initializes NVS and
+  the station interface, then starts the master application.
+- `master_node/main/application/wd_master_app.c` coordinates scanner
+  discovery, BLE controls, protocol callbacks, and background tasks.
+- `node_manager` and `aggregator` own scanner liveness/channel assignment
+  and discovered-record state. `node_manager` receives its clock and
+  transport send operations through `wd_node_manager_ports_t` rather than
+  calling UART or ESP-NOW drivers directly.
+- `ble_gatt`, `uart_master`, and `espnow_master` are hardware-facing adapters;
+  protocol framing and wire types remain in the shared `wardrive_proto`
+  component.
+
+### Master flow
+
+```mermaid
+flowchart TD
+    boot([Power on]) --> platform["app_main: initialize NVS and Wi-Fi station"]
+    platform --> app["wd_master_app_start: initialize aggregation, node manager, UART, ESP-NOW, and BLE"]
+    app --> tasks["Start discovery task and status task"]
+    tasks --> discover["Every 5 seconds: send HELLO_REQ over UART and ESP-NOW"]
+    discover --> receive["Scanner replies arrive through UART or ESP-NOW callback"]
+    receive --> liveness["Refresh liveness; register newly heard scanner"]
+    liveness --> kind{Message type?}
+    kind -->|AP_RECORD| aggregate["Deduplicate or update AP record"]
+    aggregate --> notify["Notify subscribed phone over BLE"]
+    notify --> phone([Phone app])
+    kind -->|HELLO_RESP| hello["Record scanner discovery"]
+    kind -->|SCAN_CYCLE_DONE| cycle["Record scan-cycle completion"]
+    tasks --> status["Every 10 seconds: prune stale scanners, redistribute channels, log status"]
+    status --> live["Live scanners receive current channel assignments"]
+    phone --> command{BLE command}
+    command -->|Start| start["Send START_SCAN to scanners"]
+    command -->|Stop| stop["Send STOP_SCAN to scanners"]
+    start --> live
+    stop --> live
+```
+
+### Scanner node flow
+
+```mermaid
+flowchart TD
+    boot([Power on]) --> init["Create assignment/radio locks and AP queue"]
+    init --> services["Initialize Wi-Fi scan, selected UART or ESP-NOW transport, and BLE observer"]
+    services --> background["Start 500 ms queue-flush task and 5 second status timer"]
+    background --> wait["Wait for master commands"]
+    wait --> message{Command}
+    message -->|HELLO_REQ| hello["Reply HELLO_RESP"]
+    hello --> wait
+    message -->|ASSIGN_CHANNELS| assignment["Save channel assignment under assignment lock"]
+    assignment --> wait
+    message -->|START_SCAN| start["Request scanning"]
+    start --> gate{"Non-empty assignment available?"}
+    start --> bleStart["Start BLE observation"]
+    gate -->|Yes| scan["Start Wi-Fi scan task"]
+    gate -->|No| noWifi["Skip Wi-Fi scan task"]
+    scan --> snapshot["Snapshot assignment once per scan cycle"]
+    snapshot --> channels["Scan channels under radio lock"]
+    channels --> queue["Queue discovered Wi-Fi records"]
+    queue --> more{"More channels and scanning enabled?"}
+    more -->|Yes| channels
+    more -->|No| done["Resync radio and send SCAN_CYCLE_DONE"]
+    done -->|Still scanning| snapshot
+    done -->|Stopped| wait
+    bleStart --> bleObserve["BLE observer queues advertisement records"]
+    bleObserve --> apQueue[(Shared AP queue)]
+    queue --> apQueue
+    background --> flushWait["Wait 500 ms"]
+    flushWait --> flush["Lock radio, resync transport, drain AP queue as AP_RECORD"]
+    apQueue --> flush
+    flush --> flushWait
+    message -->|STOP_SCAN| stop["Clear scan flag and stop BLE observation"]
+    stop --> active{"Wi-Fi scan task active?"}
+    active -->|Yes| more
+    active -->|No| wait
+```
+
 ## Wiring
 
 Master (ESP32-WROOM-32E) UART pins ↔ local ESP32-C5 UART pins (cross TX/RX,
@@ -115,8 +193,9 @@ idf.py -p /dev/ttyUSBn flash monitor
 
 ## Developer guide
 
-- `master_node/main/main.c` wires together BLE, UART, ESP-NOW, aggregation,
-  discovery, and periodic node-status maintenance.
+- `master_node/main/main.c` initializes platform services;
+  `master_node/main/application/wd_master_app.c` coordinates BLE, UART,
+  ESP-NOW, aggregation, discovery, and periodic node-status maintenance.
 - `master_node/main/node_manager.c` tracks scanner liveness and redistributes
   the complete channel list whenever nodes join or become stale. The wired
   scanner is assigned index 0 when it is connected.

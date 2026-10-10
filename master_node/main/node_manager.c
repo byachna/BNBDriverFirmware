@@ -2,11 +2,8 @@
 #include "node_manager.h"
 #include "wardrive_proto.h"
 #include "wd_channels.h"
-#include "uart_master.h"
-#include "espnow_master.h"
 #include "esp_log.h"
 #include "esp_mac.h"
-#include "esp_timer.h"
 
 static const char *TAG = "wd_node_mgr";
 
@@ -23,10 +20,12 @@ static wd_espnow_node_t s_nodes[WD_MAX_ESPNOW_NODES];
 static uint32_t s_node_count = 0;
 static int64_t s_local_last_seen_us = -1; /* -1 = never heard from local UART node */
 static bool s_scan_enabled = false; /* only true once the phone app sends Start */
+static wd_node_manager_ports_t s_ports;
 
 /* Resets the connected-node table, timestamps, and scan command state. */
-void wd_node_manager_init(void)
+void wd_node_manager_init(const wd_node_manager_ports_t *ports)
 {
+    s_ports = *ports;
     s_node_count = 0;
     s_local_last_seen_us = -1;
     s_scan_enabled = false;
@@ -54,7 +53,7 @@ bool wd_node_manager_register(const uint8_t mac[6])
         return false;
     }
     memcpy(s_nodes[s_node_count].mac, mac, 6);
-    s_nodes[s_node_count].last_seen_us = esp_timer_get_time();
+    s_nodes[s_node_count].last_seen_us = s_ports.now_us();
     s_node_count++;
     ESP_LOGI(TAG, "Registered ESP-NOW scanner node #%u ("MACSTR")", (unsigned)s_node_count, MAC2STR(mac));
     return true;
@@ -69,7 +68,7 @@ void wd_node_manager_touch(const uint8_t mac[6])
         idx = find_node(mac);
     }
     if (idx >= 0) {
-        s_nodes[idx].last_seen_us = esp_timer_get_time();
+        s_nodes[idx].last_seen_us = s_ports.now_us();
     }
 }
 
@@ -77,7 +76,7 @@ void wd_node_manager_touch(const uint8_t mac[6])
 bool wd_node_manager_touch_local(void)
 {
     bool was_connected = (s_local_last_seen_us >= 0);
-    s_local_last_seen_us = esp_timer_get_time();
+    s_local_last_seen_us = s_ports.now_us();
     return !was_connected;
 }
 
@@ -111,16 +110,16 @@ static void build_and_send(uint32_t target_index, uint32_t total_targets, bool h
     }
 
     if (have_local && target_index == 0) {
-        wd_uart_master_send(WD_MSG_ASSIGN_CHANNELS, &assign, sizeof(assign));
+        s_ports.uart_send(WD_MSG_ASSIGN_CHANNELS, &assign, sizeof(assign));
         if (s_scan_enabled) {
-            wd_uart_master_send(WD_MSG_START_SCAN, NULL, 0);
+            s_ports.uart_send(WD_MSG_START_SCAN, NULL, 0);
         }
     } else {
         uint32_t node_idx = have_local ? target_index - 1 : target_index;
         const uint8_t *mac = s_nodes[node_idx].mac;
-        wd_espnow_master_send(mac, WD_MSG_ASSIGN_CHANNELS, &assign, sizeof(assign));
+        s_ports.espnow_send(mac, WD_MSG_ASSIGN_CHANNELS, &assign, sizeof(assign));
         if (s_scan_enabled) {
-            wd_espnow_master_send(mac, WD_MSG_START_SCAN, NULL, 0);
+            s_ports.espnow_send(mac, WD_MSG_START_SCAN, NULL, 0);
         }
     }
 }
@@ -145,16 +144,16 @@ void wd_node_manager_redistribute(void)
 void wd_node_manager_start_all(void)
 {
     s_scan_enabled = true;
-    wd_uart_master_send(WD_MSG_START_SCAN, NULL, 0);
-    wd_espnow_master_broadcast(WD_MSG_START_SCAN, NULL, 0);
+    s_ports.uart_send(WD_MSG_START_SCAN, NULL, 0);
+    s_ports.espnow_broadcast(WD_MSG_START_SCAN, NULL, 0);
 }
 
 /* Disables scanning and broadcasts a stop command to all connected transports. */
 void wd_node_manager_stop_all(void)
 {
     s_scan_enabled = false;
-    wd_uart_master_send(WD_MSG_STOP_SCAN, NULL, 0);
-    wd_espnow_master_broadcast(WD_MSG_STOP_SCAN, NULL, 0);
+    s_ports.uart_send(WD_MSG_STOP_SCAN, NULL, 0);
+    s_ports.espnow_broadcast(WD_MSG_STOP_SCAN, NULL, 0);
 }
 
 /* Reports whether a timestamp is older than the node liveness threshold. */
@@ -166,7 +165,7 @@ static bool is_stale(int64_t last_seen_us, int64_t now)
 /* Removes nodes that have missed the liveness timeout and reports any change. */
 bool wd_node_manager_prune_stale(void)
 {
-    int64_t now = esp_timer_get_time();
+    int64_t now = s_ports.now_us();
     bool changed = false;
 
     if (local_connected() && is_stale(s_local_last_seen_us, now)) {
@@ -193,7 +192,7 @@ bool wd_node_manager_prune_stale(void)
 /* Logs liveness and last-seen age for every known scanner node. */
 void wd_node_manager_log_status(void)
 {
-    int64_t now = esp_timer_get_time();
+    int64_t now = s_ports.now_us();
 
     if (s_local_last_seen_us < 0) {
         ESP_LOGI(TAG, "local UART node: no data yet");
