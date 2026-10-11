@@ -7,5 +7,6 @@
     "--query-driver=**",
     "--compile-commands-dir=/home/europort/Code/BNBDriverMaster/build"
   ],
-  "cmake.sourceDirectory": "/home/europort/Code/BNBDriverMaster/master_node/main"
+  "cmake.sourceDirectory": "/home/europort/Code/BNBDriverMaster/master_node/main",
+  "cmake.ignoreCMakeListsMissing": true
 }

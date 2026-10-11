@@ -132,10 +132,15 @@ Master (ESP32-WROOM-32E) UART pins ↔ local ESP32-C5 UART pins (cross TX/RX,
 common ground):
 
 | Master (WROOM-32E) | ESP32-C5 (wired) |
-|---------------------|------------------|
-| GPIO17 (TX)          | GPIO9 (RX)       |
-| GPIO16 (RX)          | GPIO8 (TX)       |
-| GND                  | GND              |
+|--------------------|------------------|
+| GPIO17 (TX)        | GPIO9 (RX)       |
+| GPIO16 (RX)        | GPIO8 (TX)       |
+| GND                | GND              |
+| 5V+ / VIN          | 5V+ / VIN        |
+
+The 5V+ / VIN connection ties the boards' power rails. Do not connect both
+boards to separate powered USB sources while this wire is installed; remove
+the 5V+ wire before plugging both boards into USB.
 
 Note: GPIO16/17 aren't broken out on the ESP32-C5-DevKitC-1 (they're used
 internally by the WROOM-1 module's flash/PSRAM SPI bus), so the C5 side
